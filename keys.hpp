@@ -1,77 +1,48 @@
 #pragma once
-#include <cstddef>
-#include <random>
-#include <functional>
-#include <vector>
-#include <ctime>
-#include <limits>
-#include <iostream>
-#include <boost/multiprecision/number.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
-#include <boost/math/special_functions/prime.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int_distribution.hpp>
+#include "utils.hpp"
 
 namespace mp = boost::multiprecision;
-namespace math = boost::math;
-namespace rnd = boost::random;
 
 namespace rsa {
 
     template<unsigned int N>
-    struct keys {
+    class keys {
 
-        using number = mp::number<mp::backends::cpp_int_backend<N, N, mp::unsigned_magnitude, mp::unchecked, void>>;
+    public:
 
-        static auto& random_generator() {
-            static boost::mt19937 gen(static_cast<const uint32_t&>(std::time(nullptr)));
-            return gen;
+        using number = typename num_utils<N>::number;
+
+        keys() {
+            const auto p = static_cast<number>(num_utils<N / 2>::generate_random_prime());
+            const auto q = static_cast<number>(num_utils<N / 2>::generate_random_prime());
+            _n = p * q;
+            _phi = (p - 1) * (q - 1);
+            const auto rand = num_utils<N>::get_int_random(2, _phi - 1);
+            _e = rand();
+            while (mp::gcd(_phi, _e) != 1)
+                _e = rand();
+            const auto d = num_utils<N>::bezout_identity(_e, _phi).first % _phi;
+            _d = static_cast<number>(d > 0 ? d : _phi + d);
         }
 
-        static auto get_int_random(const number min = std::numeric_limits<number>::min(),
-                                   const number max = std::numeric_limits<number>::max()) {
-            rnd::uniform_int_distribution<number> dist(min, max);
-            return std::bind(dist, std::ref(random_generator()));
-
+        const auto& get_n() const {
+            return _n;
         }
 
-        static auto generate_random_prime(const size_t k = 100) {
-            const auto rand = get_int_random();
-            while(true) {
-                const auto n = rand();
-                for (unsigned int i = 0; i < math::max_prime; ++i)
-                    if (n % math::prime(i) == 0)
-                        goto next;
-                if (miller_rabin_test(n, k))
-                    return n;
-                next:
-                continue;
-            }
+        const auto& get_e() const {
+            return _e;
+        }
+        const auto& get_d() const {
+            return _d;
+        }
+        const auto& get_phi() const {
+            return _phi;
         }
 
-        static auto miller_rabin_test(const number& n, const size_t k) {
-            const auto rand = get_int_random(2, n - 2);
-            auto d = n - 1;
-            size_t r = 0;
-            while (d % 2 == 0) {
-                d /= 2;
-                ++r;
-            }
-            for (size_t i = 0; i < k; ++i) {
-                auto x = mp::powm(rand(), d, n);
-                if (x == 1 || x == n - 1)
-                    continue;
-                for (size_t j = 0; j < r - 1; ++j) {
-                    x = mp::powm(x, 2, n);
-                    if (x == n - 1)
-                        goto next;
-                }
-                return false;
-                next:
-                continue;
-            }
-            return true;
-        }
+    private:
+
+        number _n, _e, _d, _phi;
 
     };
 
