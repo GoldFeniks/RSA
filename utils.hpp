@@ -90,6 +90,20 @@ namespace rsa {
             return std::make_pair(buff.second - (b / a) * buff.first, buff.first);
         }
 
+        template<typename It>
+        static auto bytes_to_number(It begin, const It& end) {
+            number result;
+            mp::import_bits(result, begin, end, 8);
+            return result;
+        }
+
+        static auto number_to_bytes(const number& number) {
+            std::array<char, N / 8> result;
+            result.fill(0);
+            mp::export_bits(number, result.rbegin(), 8, false);
+            return result;
+        }
+
     };
 
 }// namespace rsa

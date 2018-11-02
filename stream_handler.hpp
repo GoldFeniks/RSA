@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include <array>
+#include <cstdio>
 #include "utils.hpp"
 
 namespace mp = boost::multiprecision;
@@ -77,11 +78,9 @@ namespace rsa {
 
         template<unsigned int N>
         auto read_number() {
-            typename num_utils<N>::number result;
             unsigned int n;
             const auto bytes = _read_bytes.template read_bytes<N / 8>(n);
-            mp::import_bits(result, bytes.begin(), bytes.begin() + n, 8);
-            return result;
+            return num_utils<N>::bytes_to_number(bytes.begin(), bytes.begin() + n);
         }
 
     private:
@@ -91,13 +90,40 @@ namespace rsa {
     };
 
     template<typename OwnerT>
-    class write_bytes_operation : operation<OwnerT> {
+    class read_number_padding_operation {
+
+    public:
+
+        explicit read_number_padding_operation(OwnerT* owner) : _read_bytes(owner) {}
+
+        template<unsigned int N>
+        auto read_number_padding(unsigned int& n) {
+            auto bytes = _read_bytes.template read_bytes<N / 8>(n);
+            for (unsigned int i = 0; i < N / 8 - n; ++i)
+                bytes[n + i] = static_cast<char>(N / 8 - n);
+            return num_utils<N>::bytes_to_number(bytes.begin(), bytes.end());
+        }
+
+        template<unsigned int N>
+        auto read_number_padding() {
+            static unsigned int n;
+            return read_number_padding(n);
+        }
+
+    private:
+
+        read_bytes_operation<OwnerT> _read_bytes;
+
+    };
+
+    template<typename OwnerT>
+    class write_bytes_operation : private operation<OwnerT> {
 
     public:
 
         explicit write_bytes_operation(OwnerT* owner) : operation<OwnerT>(owner) {}
 
-        template<size_t N>
+        template<unsigned int N>
         void write_bytes(const std::array<char, N>& bytes) {
             this->_owner->get_stream().write(bytes.data(), N);
         }
@@ -113,14 +139,43 @@ namespace rsa {
 
         template<unsigned int N>
         void write_number(const typename num_utils<N>::number number) {
-            std::array<char, N / 8> bytes;
-            mp::export_bits(number, bytes.rbegin(), 8, false);
-            _write_bytes.write_bytes(bytes);
+            _write_bytes.template write_bytes<N / 8>(num_utils<N>::number_to_bytes(number));
         }
 
     private:
 
         write_bytes_operation<OwnerT> _write_bytes;
+
+    };
+
+    template<typename OwnerT>
+    class write_number_nlz_operation : operation<OwnerT> {
+
+    public:
+
+        explicit write_number_nlz_operation(OwnerT* owner) : operation<OwnerT>(owner) {}
+
+        template<unsigned int N>
+        void write_number_nlz(const typename num_utils<N>::number& number) {
+            const auto msb = mp::msb(number);
+            const auto n = msb % 8 == 0 ? msb / 8 : msb / 8 + 1;
+            const auto bytes = num_utils<N>::number_to_bytes(number);
+            this->_owner->get_stream().write(bytes.data() + N - n, n);
+        }
+
+    };
+
+    template<typename OwnerT>
+    class eof_operation : operation<OwnerT> {
+
+    public:
+
+        explicit eof_operation(OwnerT* owner) : operation<OwnerT>(owner) {}
+
+        bool eof() {
+            return this->_owner->get_stream().peek() == EOF;
+        }
+
     };
 
     template<template<typename> typename... Operations>
@@ -128,5 +183,15 @@ namespace rsa {
 
     template<template<typename> typename... Operations>
     using ofstream_handler = stream_handler<std::ofstream, Operations...>;
+
+    template<typename Handler, template<typename> typename Operation>
+    struct has_operation {
+
+        static constexpr bool value = std::is_base_of_v<Operation<Handler>, Handler>;
+
+    };
+
+    template<typename Handler, template<typename> typename Operation>
+    inline constexpr bool has_operation_v = has_operation<Handler, Operation>::value;
 
 };// namespace rsa
