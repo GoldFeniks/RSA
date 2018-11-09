@@ -35,13 +35,15 @@ void encrypt_file(const std::string& in_file, const std::string& out_file, const
 }
 
 template<size_t E, size_t D>
-void decrypt_file(const std::string& in_file, const std::string& out_file) {
+void decrypt_file(const std::string& in_file, const std::string& out_file, const bool print_keys) {
     std::ifstream inp(in_file, std::ios::binary);
     rsa::ifstream_handler<rsa::read_number_operation, rsa::eof_operation> read_handler(inp);
     std::ofstream out(out_file, std::ios::binary);
     rsa::ofstream_handler<rsa::write_number_operation> write_handler(out);
     const auto d = read_handler.read_number<D * 8>();
     const auto n = read_handler.read_number<D * 8>();
+    if (print_keys)
+        std::cout << "Decrypt keys:\n    d  : " << d << "\n    n  : " << n << std::endl;
     const auto numbers = rsa::cipher<E, D>::decrypt(read_handler, rsa::keys<D * 8>(n, 0, d, 0));
     for (size_t i = 0; i < numbers.size() - 1; ++i)
         write_handler.write_number<E * 8>(numbers[i]);
@@ -71,7 +73,9 @@ int main(int argc, char* argv[]) {
             ("output_file,o", po::value(&out_file)->default_value("output.txt"), "output filename")
             ("encfile,c", po::value(&enc_file)->default_value("encrypted.txt"), "encrypted filename")
             ("random_keys", "use random keys")
-            ("print_keys", "print keys");
+            ("print_keys", "print keys")
+            ("encrypt", "encrypt file")
+            ("decrypt", "decrypt file");
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
     po::notify(vm);
@@ -79,13 +83,17 @@ int main(int argc, char* argv[]) {
         std::cout << desc << std::endl;
         return 0;
     }
-    const auto keys = vm.count("random_keys") ? rsa::keys<256>() : rsa::keys<256>(n, e, d, 0);
-    if (vm.count("print_keys")) {
-        std::cout << "n  : " << keys.get_n() << '\n';
-        std::cout << "e  : " << keys.get_e() << '\n';
-        std::cout << "d  : " << keys.get_d() << '\n';
-        std::cout << "phi: " << keys.get_phi() << std::endl;
+    if (vm.count("encrypt")) {
+        const auto keys = vm.count("random_keys") ? rsa::keys<256>() : rsa::keys<256>(n, e, d, 0);
+        if (vm.count("print_keys")) {
+            std::cout << "Encrypt keys:\n";
+            std::cout << "    n  : " << keys.get_n() << '\n';
+            std::cout << "    e  : " << keys.get_e() << '\n';
+            std::cout << "    d  : " << keys.get_d() << '\n';
+            std::cout << "    phi: " << keys.get_phi() << std::endl;
+        }
+        encrypt_file<8, 32>(in_file, enc_file, keys);
     }
-    encrypt_file<8, 32>(in_file, enc_file, keys);
-    decrypt_file<8, 32>(enc_file, out_file);
+    if (vm.count("decrypt"))
+        decrypt_file<8, 32>(enc_file, out_file, vm.count("print_keys"));
 }
